@@ -10,6 +10,8 @@ export type HttpFetch = (input: string | URL, init?: RequestInit) => Promise<Res
 
 const API_BASE = "https://gamesdb-api.launchbox-app.com/api";
 const IMAGE_BASE = "https://images.launchbox-app.com/";
+// Newer game images are stored with an `r2_` prefix and served from the R2 host.
+const R2_IMAGE_BASE = "https://gamesdb-images.launchbox.gg/";
 
 export interface LaunchBoxSearchRecord {
   gameKey?: string | number;
@@ -54,7 +56,8 @@ export interface LaunchBoxGame {
 
 export function imageUrl(fileName: string | null | undefined): string | undefined {
   if (!fileName) return undefined;
-  return `${IMAGE_BASE}${fileName}`;
+  const base = fileName.startsWith("r2_") ? R2_IMAGE_BASE : IMAGE_BASE;
+  return `${base}${fileName}`;
 }
 
 function parseYear(value: string | null | undefined): number | undefined {

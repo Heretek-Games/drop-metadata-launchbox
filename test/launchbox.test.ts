@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { MockPluginContext } from "@droposs/plugin-sdk";
-import Plugin, { mapGameDetails, mapSearchResults } from "../src/index.js";
+import Plugin, { imageUrl, mapGameDetails, mapSearchResults } from "../src/index.js";
 
 const SEARCH_FIXTURE = {
   count: 2,
@@ -190,4 +190,16 @@ test("drop-metadata-launchbox throws on failed requests", async () => {
     () => ctx.metadataProviders.get("launchbox")?.getDetails("112360") ?? Promise.resolve(null),
     /LaunchBox Games Database request failed with status 500/,
   );
+});
+
+test("imageUrl routes r2_-prefixed files to the R2 host", () => {
+  assert.equal(
+    imageUrl("58b87b24-046f-4025-9b6b-24b9499e55a6.jpg"),
+    "https://images.launchbox-app.com/58b87b24-046f-4025-9b6b-24b9499e55a6.jpg",
+  );
+  assert.equal(
+    imageUrl("r2_abcd1234.jpg"),
+    "https://gamesdb-images.launchbox.gg/r2_abcd1234.jpg",
+  );
+  assert.equal(imageUrl(null), undefined);
 });
