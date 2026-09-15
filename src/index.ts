@@ -10,6 +10,8 @@ export type HttpFetch = (input: string | URL, init?: RequestInit) => Promise<Res
 
 const API_BASE = "https://gamesdb-api.launchbox-app.com/api";
 const IMAGE_BASE = "https://images.launchbox-app.com/";
+// Newer game images are stored with an `r2_` prefix and served from the R2 host.
+const R2_IMAGE_BASE = "https://gamesdb-images.launchbox.gg/";
 
 export interface LaunchBoxSearchRecord {
   gameKey?: string | number;
@@ -52,9 +54,26 @@ export interface LaunchBoxGame {
   videoUrl?: string | null;
 }
 
+/**
+ * Image URL candidates for a GamesDB file name, in preference order.
+ *
+ * `r2_`-prefixed names are normally served from the R2 host, but LaunchBox
+ * still serves some of them from the legacy host, so the legacy URL is
+ * appended as a fallback. Consumers that can retry (image proxies, clients)
+ * should try the candidates in order; the plugin itself only returns URLs and
+ * never fetches image bytes, so it cannot probe them.
+ */
+export function imageUrlCandidates(fileName: string | null | undefined): string[] {
+  if (!fileName) return [];
+  if (fileName.startsWith("r2_")) {
+    return [`${R2_IMAGE_BASE}${fileName}`, `${IMAGE_BASE}${fileName}`];
+  }
+  return [`${IMAGE_BASE}${fileName}`];
+}
+
+/** Primary image URL: the first entry of {@link imageUrlCandidates}. */
 export function imageUrl(fileName: string | null | undefined): string | undefined {
-  if (!fileName) return undefined;
-  return `${IMAGE_BASE}${fileName}`;
+  return imageUrlCandidates(fileName)[0];
 }
 
 function parseYear(value: string | null | undefined): number | undefined {
@@ -76,13 +95,12 @@ export function mapSearchResults(payload: unknown): MetadataSearchResult[] {
     }));
 }
 
-function pickImageUrl(
+function pickImageFileName(
   images: LaunchBoxGameImage[],
   matches: (typeName: string) => boolean,
 ): string | undefined {
   const image = images.find((candidate) => candidate.imageTypeName && matches(candidate.imageTypeName));
-  if (!image) return undefined;
-  return imageUrl(image.fullGameImageFileName ?? image.imageFileName);
+  return image?.fullGameImageFileName ?? image?.imageFileName ?? undefined;
 }
 
 export function mapGameDetails(payload: unknown): MetadataDetails | null {
@@ -90,23 +108,31 @@ export function mapGameDetails(payload: unknown): MetadataDetails | null {
   if (!game?.gameKey || !game.name) return null;
 
   const images = Array.isArray(game.gameImages) ? game.gameImages : [];
-  const screenshots = images
+  const screenshotNames = images
     .filter((image) => image.imageTypeName?.startsWith("Screenshot"))
-    .map((image) => imageUrl(image.fullGameImageFileName ?? image.imageFileName))
-    .filter((url): url is string => Boolean(url));
+    .map((image) => image.fullGameImageFileName ?? image.imageFileName)
+    .filter((name): name is string => Boolean(name));
+  const screenshots = Array.from(
+    new Set(screenshotNames.map((name) => imageUrl(name))),
+  ).filter((url): url is string => Boolean(url));
 
-  const coverUrl =
-    pickImageUrl(images, (name) => name === "Box - Front Thumb" || name === "Box - Front") ??
-    pickImageUrl(images, (name) => /^Box - Front/.test(name)) ??
-    imageUrl(game.backgroundImage?.imageFileName);
+  const coverName =
+    pickImageFileName(images, (name) => name === "Box - Front Thumb" || name === "Box - Front") ??
+    pickImageFileName(images, (name) => /^Box - Front/.test(name)) ??
+    game.backgroundImage?.imageFileName;
+  const bannerName = pickImageFileName(
+    images,
+    (name) => name === "Fanart - Background Thumb" || name === "Fanart - Background",
+  );
+  const iconName = pickImageFileName(images, (name) => name === "Clear Logo Thumb" || name === "Clear Logo");
 
   return {
     id: String(game.gameKey),
     title: game.name,
     releaseYear: game.releaseYear ?? parseYear(game.releaseDate),
-    coverUrl,
-    bannerUrl: pickImageUrl(images, (name) => name === "Fanart - Background Thumb" || name === "Fanart - Background"),
-    iconUrl: pickImageUrl(images, (name) => name === "Clear Logo Thumb" || name === "Clear Logo"),
+    coverUrl: imageUrl(coverName),
+    bannerUrl: imageUrl(bannerName),
+    iconUrl: imageUrl(iconName),
     description: game.overview ?? undefined,
     genres: game.gameGenres?.map((genre) => genre.name).filter((name): name is string => Boolean(name)),
     developers: game.gameDevelopers?.map((company) => company.name).filter((name): name is string => Boolean(name)),
@@ -122,6 +148,15 @@ export function mapGameDetails(payload: unknown): MetadataDetails | null {
       steamAppId: game.steamAppId ?? undefined,
       wikipediaUrl: game.wikipediaUrl ?? undefined,
       videoUrl: game.videoUrl ?? undefined,
+      // `MetadataDetails` has no typed alternates field, so the ordered image
+      // candidates (R2 host first, legacy host fallback) are exposed here for
+      // consumers that can retry a failed image load.
+      imageCandidates: {
+        coverUrl: imageUrlCandidates(coverName),
+        bannerUrl: imageUrlCandidates(bannerName),
+        iconUrl: imageUrlCandidates(iconName),
+        screenshots: screenshotNames.flatMap((name) => imageUrlCandidates(name)),
+      },
     },
   };
 }

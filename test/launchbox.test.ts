@@ -1,7 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { MockPluginContext } from "@droposs/plugin-sdk";
-import Plugin, { mapGameDetails, mapSearchResults } from "../src/index.js";
+import Plugin, {
+  imageUrl,
+  imageUrlCandidates,
+  mapGameDetails,
+  mapSearchResults,
+} from "../src/index.js";
 
 const SEARCH_FIXTURE = {
   count: 2,
@@ -190,4 +195,53 @@ test("drop-metadata-launchbox throws on failed requests", async () => {
     () => ctx.metadataProviders.get("launchbox")?.getDetails("112360") ?? Promise.resolve(null),
     /LaunchBox Games Database request failed with status 500/,
   );
+});
+
+test("imageUrl routes r2_-prefixed files to the R2 host", () => {
+  assert.equal(
+    imageUrl("58b87b24-046f-4025-9b6b-24b9499e55a6.jpg"),
+    "https://images.launchbox-app.com/58b87b24-046f-4025-9b6b-24b9499e55a6.jpg",
+  );
+  assert.equal(
+    imageUrl("r2_abcd1234.jpg"),
+    "https://gamesdb-images.launchbox.gg/r2_abcd1234.jpg",
+  );
+  assert.equal(imageUrl(null), undefined);
+});
+
+test("imageUrlCandidates lists the legacy host as an r2_ fallback", () => {
+  assert.deepEqual(imageUrlCandidates("58b87b24-046f-4025-9b6b-24b9499e55a6.jpg"), [
+    "https://images.launchbox-app.com/58b87b24-046f-4025-9b6b-24b9499e55a6.jpg",
+  ]);
+  assert.deepEqual(imageUrlCandidates("r2_abcd1234.jpg"), [
+    "https://gamesdb-images.launchbox.gg/r2_abcd1234.jpg",
+    "https://images.launchbox-app.com/r2_abcd1234.jpg",
+  ]);
+  assert.deepEqual(imageUrlCandidates(null), []);
+});
+
+test("detail mapping exposes ordered image candidates for r2_ names", () => {
+  const details = mapGameDetails({
+    gameKey: 42,
+    name: "R2 Game",
+    gameImages: [
+      { imageFileName: "r2_cover.jpg", imageTypeName: "Box - Front" },
+      { imageFileName: "r2_shot.jpg", imageTypeName: "Screenshot - Gameplay" },
+    ],
+  });
+  assert.ok(details);
+  assert.equal(details.coverUrl, "https://gamesdb-images.launchbox.gg/r2_cover.jpg");
+  assert.equal(details.screenshots?.[0], "https://gamesdb-images.launchbox.gg/r2_shot.jpg");
+  assert.deepEqual(details.metadata?.imageCandidates, {
+    coverUrl: [
+      "https://gamesdb-images.launchbox.gg/r2_cover.jpg",
+      "https://images.launchbox-app.com/r2_cover.jpg",
+    ],
+    bannerUrl: [],
+    iconUrl: [],
+    screenshots: [
+      "https://gamesdb-images.launchbox.gg/r2_shot.jpg",
+      "https://images.launchbox-app.com/r2_shot.jpg",
+    ],
+  });
 });
